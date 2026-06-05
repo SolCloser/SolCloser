@@ -15,6 +15,7 @@ import {
   FEE_BPS,
   RENT_PER_ACCOUNT_LAMPORTS,
   ACCOUNTS_PER_TX,
+  BURN_ACCOUNTS_PER_TX,
 } from "./constants"
 import { TokenAccount } from "./rpc"
 
@@ -89,7 +90,7 @@ export function buildCloseTransactions(owner: PublicKey, accounts: TokenAccount[
 }
 
 export function buildBurnAndCloseTransactions(owner: PublicKey, accounts: TokenAccount[]): Transaction[] {
-  return chunk(accounts, ACCOUNTS_PER_TX).map((batch) => buildBurnCloseTx(owner, batch))
+  return chunk(accounts, BURN_ACCOUNTS_PER_TX).map((batch) => buildBurnCloseTx(owner, batch))
 }
 
 /** Stamp a fresh blockhash + feePayer onto a transaction right before sending. */

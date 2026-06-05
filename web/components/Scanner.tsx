@@ -11,7 +11,8 @@ import {
   prepareTransaction,
   estimateReclaim,
 } from "@/lib/transactions"
-import { MAX_WALLETS, SCAN_COOLDOWN_MS } from "@/lib/constants"
+import { closeAccountsWithALT } from "@/lib/altClose"
+import { MAX_WALLETS, SCAN_COOLDOWN_MS, ACCOUNTS_PER_TX, BURN_ACCOUNTS_PER_TX } from "@/lib/constants"
 import { AccountTable } from "./AccountTable"
 
 function makeConnection() {
@@ -114,8 +115,58 @@ function useCloseAccounts(
       if (accounts.length === 0) return
 
       const walletAddr = ws.result.wallet
-      updateState(walletAddr, { txStatus: "sending", txMessage: "Building transactions…" })
+      const closedPubkeys = new Set(accounts.map((a) => a.pubkey))
 
+      const onSuccess = () =>
+        updateState(walletAddr, {
+          txStatus: "success",
+          txMessage: `${accounts.length} account${accounts.length > 1 ? "s" : ""} closed — SOL reclaimed! 🎉`,
+          result: {
+            ...ws.result,
+            closeable: mode === "close"
+              ? ws.result.closeable.filter((a) => !closedPubkeys.has(a.pubkey))
+              : ws.result.closeable,
+            nonEmpty: mode === "burn"
+              ? ws.result.nonEmpty.filter((a) => !closedPubkeys.has(a.pubkey))
+              : ws.result.nonEmpty,
+          },
+          selectedClose: mode === "close" ? new Set() : ws.selectedClose,
+          selectedBurn: mode === "burn" ? new Set() : ws.selectedBurn,
+        })
+
+      const onError = (e: unknown) => {
+        const raw = e instanceof Error ? e.message : String(e)
+        const msg =
+          raw.toLowerCase().includes("reject") || raw.toLowerCase().includes("cancel")
+            ? "Transaction cancelled."
+            : raw.slice(0, 140)
+        updateState(walletAddr, { txStatus: "error", txMessage: msg })
+      }
+
+      // ── ALT + Jito path: large close-only batches (1 user approval) ─────────
+      if (mode === "close" && accounts.length > ACCOUNTS_PER_TX) {
+        updateState(walletAddr, { txStatus: "sending", txMessage: "Preparing Jito bundle…" })
+        try {
+          await closeAccountsWithALT(
+            conn,
+            accounts,
+            owner,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (tx: any) => connectedWallet.signTransaction(tx),
+            (msg, bundle, total) => {
+              const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
+              updateState(walletAddr, { txMessage: prefix + msg })
+            },
+          )
+          onSuccess()
+        } catch (e) {
+          onError(e)
+        }
+        return
+      }
+
+      // ── Legacy path: small batches or burn+close ─────────────────────────────
+      updateState(walletAddr, { txStatus: "sending", txMessage: "Building transactions…" })
       try {
         const rawTxs =
           mode === "close"
@@ -132,31 +183,9 @@ function useCloseAccounts(
           updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} confirmed ✓` })
         }
 
-        const closedPubkeys = new Set(accounts.map((a) => a.pubkey))
-        updateState(walletAddr, {
-          txStatus: "success",
-          txMessage: `${accounts.length} account${accounts.length > 1 ? "s" : ""} closed — SOL reclaimed! 🎉`,
-          result: {
-            ...ws.result,
-            closeable:
-              mode === "close"
-                ? ws.result.closeable.filter((a) => !closedPubkeys.has(a.pubkey))
-                : ws.result.closeable,
-            nonEmpty:
-              mode === "burn"
-                ? ws.result.nonEmpty.filter((a) => !closedPubkeys.has(a.pubkey))
-                : ws.result.nonEmpty,
-          },
-          selectedClose: mode === "close" ? new Set() : ws.selectedClose,
-          selectedBurn: mode === "burn" ? new Set() : ws.selectedBurn,
-        })
-      } catch (e: unknown) {
-        const raw = e instanceof Error ? e.message : String(e)
-        const msg =
-          raw.toLowerCase().includes("reject") || raw.toLowerCase().includes("cancel")
-            ? "Transaction cancelled."
-            : raw.slice(0, 140)
-        updateState(walletAddr, { txStatus: "error", txMessage: msg })
+        onSuccess()
+      } catch (e) {
+        onError(e)
       }
     },
     [connectedWallet, updateState],
@@ -225,6 +254,59 @@ function SwitchWalletBanner({ address }: { address: string }) {
   )
 }
 
+// ── Burn confirm dialog ──────────────────────────────────────────────────────
+
+function BurnConfirmDialog({
+  count,
+  txCount,
+  onConfirm,
+  onCancel,
+}: {
+  count: number
+  txCount: number
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+      <div className="bg-sol-card border border-orange-500/40 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl">
+        <div className="text-center space-y-1">
+          <div className="text-3xl">🔥</div>
+          <h2 className="text-white font-bold text-lg">Burn & Close</h2>
+          <p className="text-sol-muted text-sm">This action is irreversible.</p>
+        </div>
+        <div className="bg-sol-dark rounded-xl p-4 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-sol-muted">Accounts to burn</span>
+            <span className="text-white font-semibold">{count}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-sol-muted">Wallet approvals needed</span>
+            <span className="text-orange-400 font-semibold">{txCount} transaction{txCount > 1 ? "s" : ""}</span>
+          </div>
+        </div>
+        <p className="text-xs text-sol-muted text-center">
+          Token balances will be burned to zero, then accounts closed. SOL rent is returned to your wallet.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-sol-border text-sol-muted text-sm font-semibold hover:text-white hover:border-white/30 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-semibold hover:opacity-80 transition-opacity"
+          >
+            Yes, burn & close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Shared: wallet result card ───────────────────────────────────────────────
 
 interface WalletCardProps {
@@ -254,11 +336,13 @@ function WalletCard({
   onSelectCloseByValue,
   onSelectBurnByValue,
 }: WalletCardProps) {
+  const [showBurnConfirm, setShowBurnConfirm] = useState(false)
   const { result, selectedClose, selectedBurn, txStatus, txMessage } = ws
   const total = result.closeable.length + result.nonEmpty.length
   const selClose = result.closeable.filter((a) => selectedClose.has(a.pubkey))
   const selBurn = result.nonEmpty.filter((a) => selectedBurn.has(a.pubkey))
   const reclaim = estimateReclaim(selClose.length + selBurn.length)
+  const burnTxCount = Math.ceil(selBurn.length / BURN_ACCOUNTS_PER_TX)
 
   return (
     <div
@@ -355,11 +439,19 @@ function WalletCard({
               {selBurn.length > 0 && (
                 <button
                   disabled={txStatus === "sending"}
-                  onClick={() => onClose(ws, "burn")}
+                  onClick={() => setShowBurnConfirm(true)}
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity"
                 >
                   {txStatus === "sending" ? "Burning…" : `Burn & close ${selBurn.length}`}
                 </button>
+              )}
+              {showBurnConfirm && (
+                <BurnConfirmDialog
+                  count={selBurn.length}
+                  txCount={burnTxCount}
+                  onConfirm={() => { setShowBurnConfirm(false); onClose(ws, "burn") }}
+                  onCancel={() => setShowBurnConfirm(false)}
+                />
               )}
             </div>
           )}
