@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { usePrivy } from "@privy-io/react-auth"
+import { usePrivy, useSolanaWallets } from "@privy-io/react-auth"
 import { Connection, PublicKey } from "@solana/web3.js"
 import { useActiveWallet } from "@/hooks/useActiveWallet"
 import { scanWallets, WalletScanResult, PumpAccumulatorAccount } from "@/lib/rpc"
