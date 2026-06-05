@@ -116,7 +116,7 @@ async function runBundle(
 
   // Synthetic ALT — lets us compile the versioned message before the ALT exists
   // on-chain. Jito lands both txs atomically in the same block.
-  const fakeAlt: AddressLookupTableAccount = {
+  const fakeAlt = {
     key: altAddress,
     state: {
       deactivationSlot: BigInt("18446744073709551615"),
@@ -124,8 +124,9 @@ async function runBundle(
       lastExtendedSlotStartIndex: 0,
       authority: undefined,
       addresses: accountPubkeys,
+      isActive: () => true,
     },
-  }
+  } as unknown as AddressLookupTableAccount
 
   const message = new TransactionMessage({
     payerKey: owner,
