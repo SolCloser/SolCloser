@@ -4,11 +4,10 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { usePrivy, useSolanaWallets } from "@privy-io/react-auth"
 import { Connection, PublicKey } from "@solana/web3.js"
 import { useActiveWallet } from "@/hooks/useActiveWallet"
-import { scanWallets, WalletScanResult, PumpAccumulatorAccount } from "@/lib/rpc"
+import { scanWallets, WalletScanResult } from "@/lib/rpc"
 import {
   buildCloseTransactions,
   buildBurnAndCloseTransactions,
-  buildClosePumpAccumulatorTransactions,
   prepareTransaction,
   estimateReclaim,
 } from "@/lib/transactions"
@@ -29,7 +28,6 @@ interface WalletState {
   result: WalletScanResult
   selectedClose: Set<string>
   selectedBurn: Set<string>
-  selectedPump: Set<string>   // pump accumulator PDAs — empty by default (not selected)
   txStatus: TxStatus
   txMessage: string
 }
@@ -51,7 +49,6 @@ function makeWalletState(result: WalletScanResult): WalletState {
     result,
     selectedClose: new Set(result.closeable.map((a) => a.pubkey)),
     selectedBurn: new Set(result.nonEmpty.map((a) => a.pubkey)),
-    selectedPump: new Set(),   // not selected by default
     txStatus: "idle",
     txMessage: "",
   }
@@ -166,59 +163,6 @@ function useCloseAccounts(
   )
 }
 
-// ── Hook: close pump accumulator accounts ────────────────────────────────────
-
-function useClosePumpAccumulators(
-  connectedWallet: ReturnType<typeof useSolanaWallets>["wallets"][number] | undefined,
-  updateState: (addr: string, patch: Partial<WalletState>) => void,
-) {
-  return useCallback(
-    async (ws: WalletState) => {
-      if (!connectedWallet) return
-
-      const owner = new PublicKey(connectedWallet.address)
-      const conn = makeConnection()
-      const accounts = ws.result.pumpAccumulators.filter((a) => ws.selectedPump.has(a.pubkey))
-      if (accounts.length === 0) return
-
-      const walletAddr = ws.result.wallet
-      updateState(walletAddr, { txStatus: "sending", txMessage: "Building transactions…" })
-
-      try {
-        const rawTxs = buildClosePumpAccumulatorTransactions(owner, accounts)
-        for (let i = 0; i < rawTxs.length; i++) {
-          updateState(walletAddr, {
-            txMessage: `Batch ${i + 1}/${rawTxs.length} — approve in wallet…`,
-          })
-          const tx = await prepareTransaction(rawTxs[i], conn, owner)
-          const sig = await connectedWallet.sendTransaction(tx, conn)
-          await conn.confirmTransaction(sig, "confirmed")
-          updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} confirmed ✓` })
-        }
-
-        const closedPubkeys = new Set(accounts.map((a) => a.pubkey))
-        updateState(walletAddr, {
-          txStatus: "success",
-          txMessage: `${accounts.length} pump account${accounts.length > 1 ? "s" : ""} closed — rent reclaimed! 🎉`,
-          result: {
-            ...ws.result,
-            pumpAccumulators: ws.result.pumpAccumulators.filter((a) => !closedPubkeys.has(a.pubkey)),
-          },
-          selectedPump: new Set(),
-        })
-      } catch (e: unknown) {
-        const raw = e instanceof Error ? e.message : String(e)
-        const msg =
-          raw.toLowerCase().includes("reject") || raw.toLowerCase().includes("cancel")
-            ? "Transaction cancelled."
-            : raw.slice(0, 140)
-        updateState(walletAddr, { txStatus: "error", txMessage: msg })
-      }
-    },
-    [connectedWallet, updateState],
-  )
-}
-
 // ── Switch wallet banner ─────────────────────────────────────────────────────
 
 // Attempt to open the injected wallet's account picker.
@@ -289,13 +233,10 @@ interface WalletCardProps {
   authenticated: boolean
   onLogin: () => void
   onClose: (ws: WalletState, mode: "close" | "burn") => void
-  onClosePump: (ws: WalletState) => void
   onToggleClose: (pubkey: string) => void
   onToggleBurn: (pubkey: string) => void
-  onTogglePump: (pubkey: string) => void
   onSelectAllClose: () => void
   onSelectAllBurn: () => void
-  onSelectAllPump: () => void
   onSelectCloseByValue: (pubkeys: string[]) => void
   onSelectBurnByValue: (pubkeys: string[]) => void
 }
@@ -306,17 +247,14 @@ function WalletCard({
   authenticated,
   onLogin,
   onClose,
-  onClosePump,
   onToggleClose,
   onToggleBurn,
-  onTogglePump,
   onSelectAllClose,
   onSelectAllBurn,
-  onSelectAllPump,
   onSelectCloseByValue,
   onSelectBurnByValue,
 }: WalletCardProps) {
-  const { result, selectedClose, selectedBurn, selectedPump, txStatus, txMessage } = ws
+  const { result, selectedClose, selectedBurn, txStatus, txMessage } = ws
   const total = result.closeable.length + result.nonEmpty.length
   const selClose = result.closeable.filter((a) => selectedClose.has(a.pubkey))
   const selBurn = result.nonEmpty.filter((a) => selectedBurn.has(a.pubkey))
@@ -379,94 +317,6 @@ function WalletCard({
         />
       )}
 
-      {/* ── Pump volume accumulator PDAs ────────────────────────────────── */}
-      {result.pumpAccumulators.length > 0 && (
-        <div className="mt-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-sol-muted">
-                Pump Accumulator Accounts
-              </h4>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sol-border text-sol-muted">
-                {result.pumpAccumulators.filter((a) => selectedPump.has(a.pubkey)).length}/{result.pumpAccumulators.length}
-              </span>
-            </div>
-            <button
-              onClick={onSelectAllPump}
-              className="text-xs text-sol-purple hover:text-sol-green transition-colors shrink-0"
-            >
-              {result.pumpAccumulators.every((a) => selectedPump.has(a.pubkey)) ? "Deselect all" : "Select all"}
-            </button>
-          </div>
-
-          <div className="rounded-xl border border-sol-border overflow-hidden">
-            <div className="grid grid-cols-[auto_1fr_auto_auto] bg-sol-dark/80 border-b border-sol-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sol-muted gap-x-4">
-              <div className="w-4" />
-              <div>Account Address</div>
-              <div className="text-right">Program</div>
-              <div className="text-right w-24">Rent (SOL)</div>
-            </div>
-            {result.pumpAccumulators.map((acc) => {
-              const isChecked = selectedPump.has(acc.pubkey)
-              return (
-                <label
-                  key={acc.pubkey}
-                  className={`grid grid-cols-[auto_1fr_auto_auto] items-center px-3 py-2 cursor-pointer border-b border-sol-border/40 last:border-0 transition-colors gap-x-4 ${
-                    isChecked ? "bg-sol-purple/[0.08]" : "hover:bg-white/[0.02]"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-[#9945FF] w-3.5 h-3.5 cursor-pointer"
-                    checked={isChecked}
-                    onChange={() => onTogglePump(acc.pubkey)}
-                  />
-                  <a
-                    href={`https://solscan.io/account/${acc.pubkey}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-mono text-[11px] text-white/70 hover:text-white transition-colors truncate"
-                    title={acc.pubkey}
-                  >
-                    {acc.pubkey.slice(0, 6)}…{acc.pubkey.slice(-4)}
-                  </a>
-                  <span className="text-[11px] text-sol-muted text-right whitespace-nowrap">
-                    {acc.programLabel}
-                  </span>
-                  <span className="text-[11px] text-sol-green text-right whitespace-nowrap w-24">
-                    {(acc.lamports / 1e9).toFixed(6)}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
-
-          {(() => {
-            const selPump = result.pumpAccumulators.filter((a) => selectedPump.has(a.pubkey))
-            if (!authenticated)
-              return (
-                <button
-                  onClick={onLogin}
-                  className="w-full py-2.5 rounded-xl border border-sol-purple/50 text-sol-purple text-sm font-semibold hover:bg-sol-purple/10 transition-colors"
-                >
-                  Connect wallet to close pump accounts
-                </button>
-              )
-            if (isOwner && selPump.length > 0)
-              return (
-                <button
-                  disabled={txStatus === "sending"}
-                  onClick={() => onClosePump(ws)}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-400 to-sol-purple text-white text-sm font-semibold hover:opacity-80 disabled:opacity-40 transition-opacity"
-                >
-                  {txStatus === "sending" ? "Closing…" : `Close ${selPump.length} pump account${selPump.length > 1 ? "s" : ""}`}
-                </button>
-              )
-            return null
-          })()}
-        </div>
-      )}
 
       {total > 0 && (
         <div className="pt-2 border-t border-sol-border space-y-3">
@@ -589,7 +439,7 @@ export function Scanner() {
   const toggleField = (
     setter: React.Dispatch<React.SetStateAction<WalletState[]>>,
     addr: string,
-    field: "selectedClose" | "selectedBurn" | "selectedPump",
+    field: "selectedClose" | "selectedBurn",
     pubkey: string,
   ) => {
     setter((prev) =>
@@ -605,7 +455,7 @@ export function Scanner() {
   const selectAll = (
     setter: React.Dispatch<React.SetStateAction<WalletState[]>>,
     addr: string,
-    field: "selectedClose" | "selectedBurn" | "selectedPump",
+    field: "selectedClose" | "selectedBurn",
     sourceField: "closeable" | "nonEmpty",
   ) => {
     setter((prev) =>
@@ -621,10 +471,8 @@ export function Scanner() {
   }
 
   // ── Close hooks ───────────────────────────────────────────────────────────
-  const closeSingle         = useCloseAccounts(connectedWallet, updateSingle)
-  const closeBulk           = useCloseAccounts(connectedWallet, updateBulk)
-  const closePumpSingle     = useClosePumpAccumulators(connectedWallet, updateSingle)
-  const closePumpBulk       = useClosePumpAccumulators(connectedWallet, updateBulk)
+  const closeSingle = useCloseAccounts(connectedWallet, updateSingle)
+  const closeBulk   = useCloseAccounts(connectedWallet, updateBulk)
 
   // ── Bulk scan ─────────────────────────────────────────────────────────────
   const handleBulkScan = useCallback(() => {
@@ -726,11 +574,10 @@ export function Scanner() {
 
               <WalletCard
                 ws={singleState}
-                isOwner={true} /* always the connected wallet in single mode */
+                isOwner={true}
                 authenticated={authenticated}
                 onLogin={login}
                 onClose={(ws, mode) => { closeSingle(ws, mode) }}
-                onClosePump={(ws) => { closePumpSingle(ws) }}
                 onToggleClose={(pubkey) =>
                   setSingleState((prev) => {
                     if (!prev) return prev
@@ -745,14 +592,6 @@ export function Scanner() {
                     const next = new Set(prev.selectedBurn)
                     next.has(pubkey) ? next.delete(pubkey) : next.add(pubkey)
                     return { ...prev, selectedBurn: next }
-                  })
-                }
-                onTogglePump={(pubkey) =>
-                  setSingleState((prev) => {
-                    if (!prev) return prev
-                    const next = new Set(prev.selectedPump)
-                    next.has(pubkey) ? next.delete(pubkey) : next.add(pubkey)
-                    return { ...prev, selectedPump: next }
                   })
                 }
                 onSelectAllClose={() =>
@@ -776,18 +615,6 @@ export function Scanner() {
                       selectedBurn: all
                         ? new Set()
                         : new Set(prev.result.nonEmpty.map((a) => a.pubkey)),
-                    }
-                  })
-                }
-                onSelectAllPump={() =>
-                  setSingleState((prev) => {
-                    if (!prev) return prev
-                    const all = prev.result.pumpAccumulators.every((a) => prev.selectedPump.has(a.pubkey))
-                    return {
-                      ...prev,
-                      selectedPump: all
-                        ? new Set()
-                        : new Set(prev.result.pumpAccumulators.map((a) => a.pubkey)),
                     }
                   })
                 }
@@ -923,35 +750,17 @@ export function Scanner() {
                   authenticated={authenticated}
                   onLogin={login}
                   onClose={closeBulk}
-                  onClosePump={closePumpBulk}
                   onToggleClose={(pubkey) =>
                     toggleField(setBulkStates, activeWalletState.result.wallet, "selectedClose", pubkey)
                   }
                   onToggleBurn={(pubkey) =>
                     toggleField(setBulkStates, activeWalletState.result.wallet, "selectedBurn", pubkey)
                   }
-                  onTogglePump={(pubkey) =>
-                    toggleField(setBulkStates, activeWalletState.result.wallet, "selectedPump", pubkey)
-                  }
                   onSelectAllClose={() =>
                     selectAll(setBulkStates, activeWalletState.result.wallet, "selectedClose", "closeable")
                   }
                   onSelectAllBurn={() =>
                     selectAll(setBulkStates, activeWalletState.result.wallet, "selectedBurn", "nonEmpty")
-                  }
-                  onSelectAllPump={() =>
-                    setBulkStates((prev) =>
-                      prev.map((ws) => {
-                        if (ws.result.wallet !== activeWalletState.result.wallet) return ws
-                        const all = ws.result.pumpAccumulators.every((a) => ws.selectedPump.has(a.pubkey))
-                        return {
-                          ...ws,
-                          selectedPump: all
-                            ? new Set()
-                            : new Set(ws.result.pumpAccumulators.map((a) => a.pubkey)),
-                        }
-                      }),
-                    )
                   }
                   onSelectCloseByValue={(pubkeys) =>
                     setBulkStates((prev) =>
