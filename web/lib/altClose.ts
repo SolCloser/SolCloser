@@ -120,7 +120,7 @@ async function runBundle(
     key: altAddress,
     state: {
       deactivationSlot: BigInt("18446744073709551615"),
-      lastExtendedSlot: BigInt(0),
+      lastExtendedSlot: 0,
       lastExtendedSlotStartIndex: 0,
       authority: undefined,
       addresses: accountPubkeys,
