@@ -14,7 +14,6 @@ import { useSolanaWallets } from "@privy-io/react-auth"
  */
 export function useActiveWallet() {
   const { wallets } = useSolanaWallets()
-  const privyWallet = wallets[0]
 
   const [injectedAddress, setInjectedAddress] = useState<string | null>(null)
 
@@ -46,10 +45,16 @@ export function useActiveWallet() {
     }
   }, [])
 
-  const activeAddress = injectedAddress ?? privyWallet?.address ?? null
+  const activeAddress = injectedAddress ?? wallets[0]?.address ?? null
+
+  // Find the wallet object whose address matches the active address so that
+  // sendTransaction is called on the correct wallet (injected vs embedded).
+  const activeWallet =
+    wallets.find((w) => w.address?.toLowerCase() === activeAddress?.toLowerCase()) ??
+    wallets[0]
 
   return {
     activeAddress,
-    privyWallet, // still needed for sendTransaction
+    privyWallet: activeWallet, // still needed for sendTransaction
   }
 }
