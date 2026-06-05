@@ -20,13 +20,23 @@ export function useActiveWallet() {
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const win = window as any
+
+    // Only target known Solana wallets — never window.solana alone which
+    // MetaMask can hijack. Prefer explicit namespaces.
     const provider =
       win.phantom?.solana ||
       win.backpack?.solana ||
-      win.solflare ||
-      win.solana
+      win.solflare
 
-    if (!provider?.on) return
+    if (!provider) return
+
+    // Silently reconnect if the user has previously approved this site.
+    // onlyIfTrusted: true means no popup — it just resolves or rejects quietly.
+    if (!provider.publicKey) {
+      provider.connect({ onlyIfTrusted: true }).catch(() => {})
+    }
+
+    if (!provider.on) return
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleAccountChanged = (newKey: any) => {
@@ -35,7 +45,6 @@ export function useActiveWallet() {
 
     provider.on("accountChanged", handleAccountChanged)
 
-    // Seed with current key if already connected
     if (provider.publicKey) {
       setInjectedAddress(provider.publicKey.toString())
     }
