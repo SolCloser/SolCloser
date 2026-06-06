@@ -401,6 +401,52 @@ function WalletCard({
         />
       )}
 
+      {/* ── Pump accumulator PDAs — display only ─────────────────────────── */}
+      {result.pumpAccumulators.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-sol-muted">
+              Pump Accumulator Accounts
+            </h4>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sol-border text-sol-muted">
+              {result.pumpAccumulators.length}
+            </span>
+          </div>
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400 leading-relaxed">
+            ⚠️ We do not recommend closing these accounts. Pump.fun has not yet clarified whether accumulator accounts affect eligibility for the $PUMP airdrop. Hold until further notice.
+          </div>
+          <div className="rounded-xl border border-sol-border overflow-hidden">
+            <div className="grid grid-cols-[1fr_auto_auto] bg-sol-dark/80 border-b border-sol-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sol-muted gap-x-4">
+              <div>Account</div>
+              <div className="text-right">Program</div>
+              <div className="text-right w-24">Rent (SOL)</div>
+            </div>
+            {result.pumpAccumulators.map((acc) => (
+              <div
+                key={acc.pubkey}
+                className="grid grid-cols-[1fr_auto_auto] items-center px-3 py-2 border-b border-sol-border/40 last:border-0 gap-x-4"
+              >
+                <a
+                  href={`https://solscan.io/account/${acc.pubkey}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[11px] text-white/50 hover:text-white transition-colors truncate"
+                  title={acc.pubkey}
+                >
+                  {acc.pubkey.slice(0, 6)}…{acc.pubkey.slice(-4)}
+                </a>
+                <span className="text-[11px] text-sol-muted text-right whitespace-nowrap">
+                  {acc.programLabel}
+                </span>
+                <span className="text-[11px] text-sol-muted text-right whitespace-nowrap w-24">
+                  {(acc.lamports / 1e9).toFixed(6)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
 
       {total > 0 && (
         <div className="pt-2 border-t border-sol-border space-y-3">
@@ -572,7 +618,13 @@ export function Scanner() {
     if (lines.length === 0 || lines.length > MAX_WALLETS || bulkScan.cooldown > 0) return
     setActiveWalletIdx(0)
     bulkScan.run(lines, (states) => {
-      setBulkStates(states)
+      // Sort highest account count first (left → right)
+      const sorted = [...states].sort(
+        (a, b) =>
+          (b.result.closeable.length + b.result.nonEmpty.length) -
+          (a.result.closeable.length + a.result.nonEmpty.length),
+      )
+      setBulkStates(sorted)
       setActiveWalletIdx(0)
     })
   }, [bulkInput, bulkScan])

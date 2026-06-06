@@ -1,6 +1,30 @@
 import { Connection, PublicKey } from "@solana/web3.js"
 import { SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM } from "./constants"
 
+const PUMP_PROGRAM_ID     = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+const PUMPSWAP_PROGRAM_ID = new PublicKey("pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA")
+
+function derivePumpUserPdas(wallet: PublicKey) {
+  return [
+    {
+      pubkey: PublicKey.findProgramAddressSync(
+        [Buffer.from("user_volume_accumulator"), wallet.toBuffer()],
+        PUMP_PROGRAM_ID,
+      )[0],
+      program: "pump" as const,
+      programLabel: "Pump.fun",
+    },
+    {
+      pubkey: PublicKey.findProgramAddressSync(
+        [Buffer.from("user_volume_accumulator"), wallet.toBuffer()],
+        PUMPSWAP_PROGRAM_ID,
+      )[0],
+      program: "pumpswap" as const,
+      programLabel: "PumpSwap",
+    },
+  ]
+}
+
 export interface TokenAccount {
   pubkey: string
   mint: string
@@ -10,10 +34,18 @@ export interface TokenAccount {
   programId: string
 }
 
+export interface PumpAccumulatorAccount {
+  pubkey: string
+  program: "pump" | "pumpswap"
+  programLabel: string
+  lamports: number
+}
+
 export interface WalletScanResult {
   wallet: string
-  closeable: TokenAccount[]   // zero balance — just close
-  nonEmpty: TokenAccount[]    // has tokens — need to burn first
+  closeable: TokenAccount[]
+  nonEmpty: TokenAccount[]
+  pumpAccumulators: PumpAccumulatorAccount[]
   error?: string
 }
 
@@ -25,7 +57,7 @@ export async function scanWallet(
   try {
     pubkey = new PublicKey(wallet)
   } catch {
-    return { wallet, closeable: [], nonEmpty: [], error: "Invalid address" }
+    return { wallet, closeable: [], nonEmpty: [], pumpAccumulators: [], error: "Invalid address" }
   }
 
   try {
@@ -64,10 +96,26 @@ export async function scanWallet(
       }
     }
 
-    return { wallet, closeable, nonEmpty }
+    // ── Pump / PumpSwap accumulator PDAs (display only) ──────────────────────
+    const pumpPdas = derivePumpUserPdas(pubkey)
+    const pumpInfos = await connection.getMultipleAccountsInfo(pumpPdas.map((p) => p.pubkey))
+    const pumpAccumulators: PumpAccumulatorAccount[] = []
+    for (let i = 0; i < pumpPdas.length; i++) {
+      const info = pumpInfos[i]
+      if (info && info.lamports > 0) {
+        pumpAccumulators.push({
+          pubkey: pumpPdas[i].pubkey.toString(),
+          program: pumpPdas[i].program,
+          programLabel: pumpPdas[i].programLabel,
+          lamports: info.lamports,
+        })
+      }
+    }
+
+    return { wallet, closeable, nonEmpty, pumpAccumulators }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "RPC error"
-    return { wallet, closeable: [], nonEmpty: [], error: msg }
+    return { wallet, closeable: [], nonEmpty: [], pumpAccumulators: [], error: msg }
   }
 }
 
