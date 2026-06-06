@@ -982,6 +982,68 @@ export function Scanner() {
             )}
         </div>
       )}
+
+      {/* ── FAQ ─────────────────────────────────────────────────────────── */}
+      <FAQ />
+    </div>
+  )
+}
+
+// ── FAQ ───────────────────────────────────────────────────────────────────────
+
+const FAQ_ITEMS = [
+  {
+    q: "Is it safe to use SolCloser?",
+    a: "Yes. SolCloser never asks for your private key. All transactions are signed directly in your wallet (Phantom, Backpack, Solflare etc.) — we only request your approval for the close transactions, just like any other Solana app.",
+  },
+  {
+    q: "Does SolCloser have access to my funds?",
+    a: "No. We can only close empty token accounts that belong to you, and only when you approve each transaction. We have no ability to move SOL or tokens without your explicit signature.",
+  },
+  {
+    q: "What is an empty token account?",
+    a: "When you receive or trade a token on Solana, a token account is created on-chain. This account requires a small SOL deposit (~0.002 SOL) called rent. When you sell or transfer all tokens, the account stays open but empty — SolCloser lets you close it and reclaim that SOL.",
+  },
+  {
+    q: "What is the fee?",
+    a: "SolCloser charges 2.5% of the SOL reclaimed. For example, closing 10 empty accounts returns ~0.02039 SOL, and our fee is ~0.00051 SOL. You keep the rest.",
+  },
+  {
+    q: "What happens to my tokens when I use Burn & Close?",
+    a: "Burn & Close permanently destroys any remaining token balance before closing the account. Only use this on tokens you are certain have no value. The SOL rent is returned to you after burning.",
+  },
+  {
+    q: "Why do large closures use a Jito bundle?",
+    a: "For batches over 20 accounts, we use Jito — a Solana transaction bundling service. This lets you close up to 90 accounts in a single wallet approval instead of many separate ones. The transactions are submitted atomically, meaning they all succeed or none do.",
+  },
+]
+
+function FAQ() {
+  const [open, setOpen] = useState<number | null>(null)
+
+  return (
+    <div className="mt-8 space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-sol-muted text-center">
+        Frequently Asked Questions
+      </h2>
+      <div className="space-y-2">
+        {FAQ_ITEMS.map((item, i) => (
+          <div key={i} className="bg-sol-card border border-sol-border rounded-xl overflow-hidden">
+            <button
+              onClick={() => setOpen(open === i ? null : i)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+            >
+              <span className="text-sm text-white font-medium pr-4">{item.q}</span>
+              <span className="text-sol-muted shrink-0">{open === i ? "▲" : "▼"}</span>
+            </button>
+            {open === i && (
+              <div className="px-4 pb-4 text-sm text-sol-muted leading-relaxed border-t border-sol-border/50 pt-3">
+                {item.a}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
