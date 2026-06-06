@@ -666,7 +666,10 @@ export function Scanner() {
           <span className="gradient-text">Reclaim Your SOL</span>
         </h1>
         <p className="text-sol-muted">
-          Close empty token accounts across your wallets and recover rent.
+          Close up to <strong className="text-white">90 empty token accounts in one wallet approval</strong> — the fastest non-custodial Solana wallet cleaner, powered by Jito bundles.
+        </p>
+        <p className="text-xs text-sol-muted/60">
+          Recover locked SOL rent from unused SPL token accounts · 2.5% fee · only on what you reclaim
         </p>
       </div>
 
