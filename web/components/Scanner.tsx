@@ -13,7 +13,7 @@ import {
 } from "@/lib/transactions"
 import { closeAccountsWithALT } from "@/lib/altClose"
 import { burnAndCloseWithALT } from "@/lib/altBurnClose"
-import { MAX_WALLETS, SCAN_COOLDOWN_MS, ACCOUNTS_PER_TX, BURN_ACCOUNTS_PER_TX } from "@/lib/constants"
+import { MAX_WALLETS, SCAN_COOLDOWN_MS, ACCOUNTS_PER_TX, BURN_ACCOUNTS_PER_TX, ALT_BURN_PER_BUNDLE } from "@/lib/constants"
 import { AccountTable } from "./AccountTable"
 
 function makeConnection() {
@@ -350,6 +350,7 @@ function BurnConfirmDialog({
   onConfirm: () => void
   onCancel: () => void
 }) {
+  const usesJito = count > BURN_ACCOUNTS_PER_TX
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
       <div className="bg-sol-card border border-orange-500/40 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl">
@@ -360,16 +361,22 @@ function BurnConfirmDialog({
         </div>
         <div className="bg-sol-dark rounded-xl p-4 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-sol-muted">Accounts to burn</span>
+            <span className="text-sol-muted">Tokens to burn</span>
             <span className="text-white font-semibold">{count}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sol-muted">Wallet approvals needed</span>
-            <span className="text-orange-400 font-semibold">{txCount} transaction{txCount > 1 ? "s" : ""}</span>
+            <span className="text-sol-muted">Wallet approvals</span>
+            <span className="text-orange-400 font-semibold">{txCount}</span>
           </div>
+          {usesJito && (
+            <div className="flex items-center gap-1.5 pt-1 border-t border-sol-border/40">
+              <span className="text-[10px] text-sol-purple font-semibold uppercase tracking-wider">⚡ Jito bundle</span>
+              <span className="text-[10px] text-sol-muted">— up to {ALT_BURN_PER_BUNDLE} tokens per approval</span>
+            </div>
+          )}
         </div>
         <p className="text-xs text-sol-muted text-center">
-          Token balances will be burned to zero, then accounts closed. SOL rent is returned to your wallet.
+          Token balances burned to zero, accounts closed. SOL rent returned to your wallet.
         </p>
         <div className="flex gap-3">
           <button
@@ -687,16 +694,24 @@ export function Scanner() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
       {/* Hero */}
-      <div className="text-center space-y-2">
+      <div className="text-center space-y-3">
         <h1 className="text-4xl font-bold">
           <span className="gradient-text">Reclaim Your SOL</span>
         </h1>
         <p className="text-sol-muted">
-          Close up to <strong className="text-white">90 empty token accounts in one wallet approval</strong> — the fastest non-custodial Solana wallet cleaner, powered by Jito bundles.
+          Close empty accounts and burn dust tokens — up to 90 at a time, one approval.
         </p>
-        <p className="text-xs text-sol-muted/60">
-          Recover locked SOL rent from unused SPL token accounts · 2.5% fee · only on what you reclaim
-        </p>
+        <div className="flex flex-wrap justify-center gap-2 pt-1">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sol-purple/10 border border-sol-purple/20 text-xs text-sol-purple font-medium">
+            <span>⚡</span> 90 accounts · 1 approval
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-xs text-orange-400 font-medium">
+            <span>🔥</span> {ALT_BURN_PER_BUNDLE} tokens burned · 1 approval
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sol-green/10 border border-sol-green/20 text-xs text-sol-green font-medium">
+            <span>🔒</span> Non-custodial · 2.5% fee
+          </span>
+        </div>
       </div>
 
       {/* Mode tabs */}
