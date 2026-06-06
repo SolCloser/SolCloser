@@ -254,6 +254,66 @@ function SwitchWalletBanner({ address }: { address: string }) {
   )
 }
 
+// ── Pump accumulator section (collapsed by default) ──────────────────────────
+
+function PumpAccumulatorSection({ accounts }: { accounts: { pubkey: string; programLabel: string; lamports: number }[] }) {
+  const [open, setOpen] = useState(false)
+  const totalSol = accounts.reduce((s, a) => s + a.lamports, 0) / 1e9
+
+  return (
+    <div className="rounded-xl border border-amber-500/20 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-amber-500/5 hover:bg-amber-500/10 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-amber-400/70">
+            Pump Accumulator Accounts
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400/70">
+            {accounts.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-amber-400/50">{totalSol.toFixed(6)} SOL locked</span>
+          <span className="text-amber-400/50 text-xs">{open ? "▲" : "▼"}</span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-amber-500/20">
+          <div className="px-4 py-2.5 text-xs text-amber-400/80 bg-amber-500/5 leading-relaxed">
+            ⚠️ Do not close these accounts. Pump.fun has not clarified whether accumulator accounts affect $PUMP airdrop eligibility. Hold until further notice.
+          </div>
+          <div className="divide-y divide-sol-border/30">
+            <div className="grid grid-cols-[1fr_auto_auto] px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sol-muted gap-x-4 bg-sol-dark/60">
+              <div>Account</div>
+              <div className="text-right">Program</div>
+              <div className="text-right w-24">Rent (SOL)</div>
+            </div>
+            {accounts.map((acc) => (
+              <div key={acc.pubkey} className="grid grid-cols-[1fr_auto_auto] items-center px-4 py-2 gap-x-4">
+                <a
+                  href={`https://solscan.io/account/${acc.pubkey}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[11px] text-white/40 hover:text-white/70 transition-colors truncate"
+                >
+                  {acc.pubkey.slice(0, 6)}…{acc.pubkey.slice(-4)}
+                </a>
+                <span className="text-[11px] text-sol-muted/60 text-right whitespace-nowrap">{acc.programLabel}</span>
+                <span className="text-[11px] text-sol-muted/60 text-right whitespace-nowrap w-24">
+                  {(acc.lamports / 1e9).toFixed(6)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Burn confirm dialog ──────────────────────────────────────────────────────
 
 function BurnConfirmDialog({
@@ -401,50 +461,9 @@ function WalletCard({
         />
       )}
 
-      {/* ── Pump accumulator PDAs — display only ─────────────────────────── */}
+      {/* ── Pump accumulator PDAs — display only, collapsed by default ──── */}
       {result.pumpAccumulators.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-sol-muted">
-              Pump Accumulator Accounts
-            </h4>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sol-border text-sol-muted">
-              {result.pumpAccumulators.length}
-            </span>
-          </div>
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400 leading-relaxed">
-            ⚠️ We do not recommend closing these accounts. Pump.fun has not yet clarified whether accumulator accounts affect eligibility for the $PUMP airdrop. Hold until further notice.
-          </div>
-          <div className="rounded-xl border border-sol-border overflow-hidden">
-            <div className="grid grid-cols-[1fr_auto_auto] bg-sol-dark/80 border-b border-sol-border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-sol-muted gap-x-4">
-              <div>Account</div>
-              <div className="text-right">Program</div>
-              <div className="text-right w-24">Rent (SOL)</div>
-            </div>
-            {result.pumpAccumulators.map((acc) => (
-              <div
-                key={acc.pubkey}
-                className="grid grid-cols-[1fr_auto_auto] items-center px-3 py-2 border-b border-sol-border/40 last:border-0 gap-x-4"
-              >
-                <a
-                  href={`https://solscan.io/account/${acc.pubkey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-mono text-[11px] text-white/50 hover:text-white transition-colors truncate"
-                  title={acc.pubkey}
-                >
-                  {acc.pubkey.slice(0, 6)}…{acc.pubkey.slice(-4)}
-                </a>
-                <span className="text-[11px] text-sol-muted text-right whitespace-nowrap">
-                  {acc.programLabel}
-                </span>
-                <span className="text-[11px] text-sol-muted text-right whitespace-nowrap w-24">
-                  {(acc.lamports / 1e9).toFixed(6)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PumpAccumulatorSection accounts={result.pumpAccumulators} />
       )}
 
 

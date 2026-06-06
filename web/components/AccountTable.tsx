@@ -2,9 +2,11 @@
 
 import { useState, useMemo, useEffect, useRef } from "react"
 import { TokenAccount } from "@/lib/rpc"
+import { RENT_PER_ACCOUNT_LAMPORTS } from "@/lib/constants"
 
 const MAX_LIST_VALUE = 100   // accounts worth more than this are hidden
 const DEFAULT_THRESHOLD = 0  // auto-select threshold (USD)
+const RENT_SOL = RENT_PER_ACCOUNT_LAMPORTS / 1e9
 
 // ── Price fetching (proxied via /api/prices to avoid CORS) ───────────────────
 
@@ -269,7 +271,7 @@ export function AccountTable({ accounts, type, selected, onToggle, onSelectAll, 
           <div className="w-4" />
           <div>Token Address</div>
           <div className="text-right">Amount</div>
-          <div className="text-right w-20">Value</div>
+          <div className="text-right w-20">{type === "closeable" ? "Reclaim" : "Value"}</div>
         </div>
 
         {/* Rows */}
@@ -323,11 +325,11 @@ export function AccountTable({ accounts, type, selected, onToggle, onSelectAll, 
                     {fmtAmount(acc.uiAmount)}
                   </span>
 
-                  {/* USD value */}
+                  {/* Value */}
                   <span
                     className={`text-[11px] text-right whitespace-nowrap w-20 ${
                       type === "closeable"
-                        ? "text-sol-muted/40"
+                        ? "text-sol-green/70"
                         : !pricesLoaded
                         ? "text-sol-muted/40 animate-pulse"
                         : autoSelected && value > 0
@@ -338,7 +340,7 @@ export function AccountTable({ accounts, type, selected, onToggle, onSelectAll, 
                     }`}
                   >
                     {type === "closeable"
-                      ? "—"
+                      ? `${RENT_SOL.toFixed(4)} SOL`
                       : pricesLoaded
                       ? fmtUsd(value)
                       : "…"}
