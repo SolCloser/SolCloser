@@ -12,9 +12,8 @@ const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? "https://api.mainnet-b
 
 // Each create+extend tx can safely hold up to 25 addresses within 1232-byte limit
 const ADDRESSES_PER_TX = 25
-// Max accounts per bundle: 90 fits in one versioned close tx with compute budget overhead
-// For >90, altClose.ts splits into sequential bundles (multiple user approvals)
-const MAX_ACCOUNTS = 90
+// Max total addresses per ALT (close-only: 90 accounts; burn+close: 35 accounts + 35 mints = 70)
+const MAX_ADDRESSES = 90
 
 function loadServerKeypair(): Keypair {
   const key = process.env.SERVER_WALLET_PRIVATE_KEY
@@ -24,13 +23,18 @@ function loadServerKeypair(): Keypair {
 
 export async function POST(req: NextRequest) {
   try {
-    const { tokenAccounts } = (await req.json()) as { tokenAccounts: string[] }
+    const { tokenAccounts, mints } = (await req.json()) as {
+      tokenAccounts: string[]
+      mints?: string[]
+    }
 
     if (!Array.isArray(tokenAccounts) || tokenAccounts.length === 0) {
       return NextResponse.json({ error: "tokenAccounts required" }, { status: 400 })
     }
-    if (tokenAccounts.length > MAX_ACCOUNTS) {
-      return NextResponse.json({ error: `Max ${MAX_ACCOUNTS} accounts per bundle` }, { status: 400 })
+    // Total addresses = token accounts + optional mints (for burn+close)
+    const allAddressStrs = [...tokenAccounts, ...(mints ?? [])]
+    if (allAddressStrs.length > MAX_ADDRESSES) {
+      return NextResponse.json({ error: `Max ${MAX_ADDRESSES} addresses per ALT` }, { status: 400 })
     }
 
     const payer = loadServerKeypair()
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
       connection.getLatestBlockhash("finalized"),
     ])
 
-    const accountPubkeys = tokenAccounts.map((a) => new PublicKey(a))
+    const accountPubkeys = allAddressStrs.map((a) => new PublicKey(a))
 
     // Derive ALT address deterministically
     const [createIx, altAddress] = AddressLookupTableProgram.createLookupTable({

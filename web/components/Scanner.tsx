@@ -12,6 +12,7 @@ import {
   estimateReclaim,
 } from "@/lib/transactions"
 import { closeAccountsWithALT } from "@/lib/altClose"
+import { burnAndCloseWithALT } from "@/lib/altBurnClose"
 import { MAX_WALLETS, SCAN_COOLDOWN_MS, ACCOUNTS_PER_TX, BURN_ACCOUNTS_PER_TX } from "@/lib/constants"
 import { AccountTable } from "./AccountTable"
 
@@ -165,7 +166,29 @@ function useCloseAccounts(
         return
       }
 
-      // ── Legacy path: small batches or burn+close ─────────────────────────────
+      // ── ALT + Jito path: bulk burn+close (1 user approval per 35 tokens) ────
+      if (mode === "burn" && accounts.length > BURN_ACCOUNTS_PER_TX) {
+        updateState(walletAddr, { txStatus: "sending", txMessage: "Preparing Jito bundle…" })
+        try {
+          await burnAndCloseWithALT(
+            conn,
+            accounts,
+            owner,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (tx: any) => connectedWallet.signTransaction(tx),
+            (msg, bundle, total) => {
+              const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
+              updateState(walletAddr, { txMessage: prefix + msg })
+            },
+          )
+          onSuccess()
+        } catch (e) {
+          onError(e)
+        }
+        return
+      }
+
+      // ── Legacy path: small batches (≤20 close or ≤10 burn+close) ────────────
       updateState(walletAddr, { txStatus: "sending", txMessage: "Building transactions…" })
       try {
         const rawTxs =
@@ -402,7 +425,10 @@ function WalletCard({
   const selClose = result.closeable.filter((a) => selectedClose.has(a.pubkey))
   const selBurn = result.nonEmpty.filter((a) => selectedBurn.has(a.pubkey))
   const reclaim = estimateReclaim(selClose.length + selBurn.length)
-  const burnTxCount = Math.ceil(selBurn.length / BURN_ACCOUNTS_PER_TX)
+  // >10 tokens route through ALT+Jito (1 approval per 35), else legacy batches
+  const burnTxCount = selBurn.length > BURN_ACCOUNTS_PER_TX
+    ? Math.ceil(selBurn.length / 35)
+    : Math.ceil(selBurn.length / BURN_ACCOUNTS_PER_TX)
 
   return (
     <div
