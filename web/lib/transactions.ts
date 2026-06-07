@@ -21,6 +21,8 @@ import {
 import { TokenAccount } from "./rpc"
 
 const FEE_PUBKEY = new PublicKey(FEE_WALLET)
+// Solana rent-exempt minimum for a basic system account (128 bytes)
+const RENT_EXEMPT_MIN_LAMPORTS = 890_880
 
 function pid(acc: TokenAccount): PublicKey {
   return acc.programId.startsWith("TokenzQ") ? T22_ID : SPL_ID
@@ -28,6 +30,25 @@ function pid(acc: TokenAccount): PublicKey {
 
 function feeForCount(n: number): number {
   return Math.floor(n * RENT_PER_ACCOUNT_LAMPORTS * FEE_BPS / 10_000)
+}
+
+/**
+ * Returns the fee lamports to include in a tx, accounting for the fee wallet's
+ * rent-exempt status. If the fee wallet has no balance, a small fee transfer
+ * would leave it below rent-exempt and cause simulation failure.
+ * In that edge case we skip the fee (fee wallet needs manual funding first).
+ */
+export async function safeFee(connection: Connection, n: number): Promise<number> {
+  const fee = feeForCount(n)
+  if (fee === 0) return 0
+  try {
+    const balance = await connection.getBalance(FEE_PUBKEY)
+    // Skip fee if it would leave the fee wallet below rent-exempt minimum
+    if (balance < RENT_EXEMPT_MIN_LAMPORTS) return 0
+  } catch {
+    // If we can't check, include the fee and let simulation catch it
+  }
+  return fee
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -40,7 +61,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
  * Build an unsigned Transaction (no blockhash, no feePayer).
  * The caller must set recentBlockhash + feePayer before sending.
  */
-function buildCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
+function buildCloseTx(owner: PublicKey, batch: TokenAccount[], fee: number): Transaction {
   const tx = new Transaction()
   // Explicit compute budget — prevents Phantom simulation warnings on newer versions
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: Math.max(50_000, batch.length * 15_000) }))
@@ -56,14 +77,15 @@ function buildCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
       ),
     )
   }
-  const fee = feeForCount(batch.length)
-  if (fee > 0) {
-    tx.add(SystemProgram.transfer({ fromPubkey: owner, toPubkey: FEE_PUBKEY, lamports: fee }))
+  // Fee is proportional to this batch; skip if fee wallet isn't rent-exempt yet
+  const batchFee = Math.floor(fee * batch.length / Math.max(batch.length, 1))
+  if (batchFee > 0) {
+    tx.add(SystemProgram.transfer({ fromPubkey: owner, toPubkey: FEE_PUBKEY, lamports: batchFee }))
   }
   return tx
 }
 
-function buildBurnCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
+function buildBurnCloseTx(owner: PublicKey, batch: TokenAccount[], fee: number): Transaction {
   const tx = new Transaction()
   // Explicit compute budget — burn + close costs more CUs than close-only
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: Math.max(100_000, batch.length * 30_000) }))
@@ -84,20 +106,30 @@ function buildBurnCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction 
     }
     tx.add(createCloseAccountInstruction(new PublicKey(acc.pubkey), owner, owner, [], p))
   }
-  const fee = feeForCount(batch.length)
-  if (fee > 0) {
-    tx.add(SystemProgram.transfer({ fromPubkey: owner, toPubkey: FEE_PUBKEY, lamports: fee }))
+  const batchFee = Math.floor(fee * batch.length / Math.max(batch.length, 1))
+  if (batchFee > 0) {
+    tx.add(SystemProgram.transfer({ fromPubkey: owner, toPubkey: FEE_PUBKEY, lamports: batchFee }))
   }
   return tx
 }
 
 /** Returns batched, unsigned transactions ready for blockhash + send. */
-export function buildCloseTransactions(owner: PublicKey, accounts: TokenAccount[]): Transaction[] {
-  return chunk(accounts, ACCOUNTS_PER_TX).map((batch) => buildCloseTx(owner, batch))
+export async function buildCloseTransactions(
+  connection: Connection,
+  owner: PublicKey,
+  accounts: TokenAccount[],
+): Promise<Transaction[]> {
+  const fee = await safeFee(connection, accounts.length)
+  return chunk(accounts, ACCOUNTS_PER_TX).map((batch) => buildCloseTx(owner, batch, fee))
 }
 
-export function buildBurnAndCloseTransactions(owner: PublicKey, accounts: TokenAccount[]): Transaction[] {
-  return chunk(accounts, BURN_ACCOUNTS_PER_TX).map((batch) => buildBurnCloseTx(owner, batch))
+export async function buildBurnAndCloseTransactions(
+  connection: Connection,
+  owner: PublicKey,
+  accounts: TokenAccount[],
+): Promise<Transaction[]> {
+  const fee = await safeFee(connection, accounts.length)
+  return chunk(accounts, BURN_ACCOUNTS_PER_TX).map((batch) => buildBurnCloseTx(owner, batch, fee))
 }
 
 /** Stamp a fresh blockhash + feePayer onto a transaction right before sending. */

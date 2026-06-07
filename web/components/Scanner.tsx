@@ -191,10 +191,11 @@ function useCloseAccounts(
       // ── Legacy path: small batches (≤20 close or ≤10 burn+close) ────────────
       updateState(walletAddr, { txStatus: "sending", txMessage: "Building transactions…" })
       try {
-        const rawTxs =
+        const rawTxs = await (
           mode === "close"
-            ? buildCloseTransactions(owner, accounts)
-            : buildBurnAndCloseTransactions(owner, accounts)
+            ? buildCloseTransactions(conn, owner, accounts)
+            : buildBurnAndCloseTransactions(conn, owner, accounts)
+        )
 
         for (let i = 0; i < rawTxs.length; i++) {
           updateState(walletAddr, {
