@@ -99,14 +99,15 @@ function useScan() {
 // ── Hook: close / burn logic ─────────────────────────────────────────────────
 
 function useCloseAccounts(
-  connectedWallet: ReturnType<typeof useSolanaWallets>["wallets"][number] | undefined,
+  activeAddress: string | null,
+  signTx: <T extends { serialize(): Uint8Array }>(tx: T) => Promise<T>,
   updateState: (addr: string, patch: Partial<WalletState>) => void,
 ) {
   return useCallback(
     async (ws: WalletState, mode: "close" | "burn") => {
-      if (!connectedWallet) return
+      if (!activeAddress) return
 
-      const owner = new PublicKey(connectedWallet.address)
+      const owner = new PublicKey(activeAddress)
       const conn = makeConnection()
       const accounts =
         mode === "close"
@@ -144,21 +145,14 @@ function useCloseAccounts(
         updateState(walletAddr, { txStatus: "error", txMessage: msg })
       }
 
-      // ── ALT + Jito path: large close-only batches (1 user approval) ─────────
+      // ── ALT path: large close-only batches (1 user approval) ────────────────
       if (mode === "close" && accounts.length > ACCOUNTS_PER_TX) {
-        updateState(walletAddr, { txStatus: "sending", txMessage: "Preparing Jito bundle…" })
+        updateState(walletAddr, { txStatus: "sending", txMessage: "Setting up lookup table…" })
         try {
-          await closeAccountsWithALT(
-            conn,
-            accounts,
-            owner,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (tx: any) => connectedWallet.signTransaction(tx),
-            (msg, bundle, total) => {
-              const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
-              updateState(walletAddr, { txMessage: prefix + msg })
-            },
-          )
+          await closeAccountsWithALT(conn, accounts, owner, signTx, (msg, bundle, total) => {
+            const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
+            updateState(walletAddr, { txMessage: prefix + msg })
+          })
           onSuccess()
         } catch (e) {
           onError(e)
@@ -166,21 +160,14 @@ function useCloseAccounts(
         return
       }
 
-      // ── ALT + Jito path: bulk burn+close (1 user approval per 35 tokens) ────
+      // ── ALT path: bulk burn+close (1 user approval per 35 tokens) ────────────
       if (mode === "burn" && accounts.length > BURN_ACCOUNTS_PER_TX) {
-        updateState(walletAddr, { txStatus: "sending", txMessage: "Preparing Jito bundle…" })
+        updateState(walletAddr, { txStatus: "sending", txMessage: "Setting up lookup table…" })
         try {
-          await burnAndCloseWithALT(
-            conn,
-            accounts,
-            owner,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (tx: any) => connectedWallet.signTransaction(tx),
-            (msg, bundle, total) => {
-              const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
-              updateState(walletAddr, { txMessage: prefix + msg })
-            },
-          )
+          await burnAndCloseWithALT(conn, accounts, owner, signTx, (msg, bundle, total) => {
+            const prefix = bundle && total ? `[${bundle}/${total}] ` : ""
+            updateState(walletAddr, { txMessage: prefix + msg })
+          })
           onSuccess()
         } catch (e) {
           onError(e)
@@ -198,24 +185,20 @@ function useCloseAccounts(
         )
 
         for (let i = 0; i < rawTxs.length; i++) {
-          updateState(walletAddr, {
-            txMessage: `Batch ${i + 1}/${rawTxs.length} — simulating…`,
-          })
+          updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} — simulating…` })
           const tx = await prepareTransaction(rawTxs[i], conn, owner)
 
-          // Pre-simulate before sending to Phantom — catches failures early so
-          // Phantom's own simulation sees a passing tx (no "malicious dApp" warning).
-          // Legacy Transaction uses the signers[] overload (no signatures needed for sim).
+          // Pre-simulate — catches failures before Phantom sees them (no false warnings)
           const simResult = await conn.simulateTransaction(tx)
           if (simResult.value.err) {
             const logs = simResult.value.logs?.join(" ") ?? ""
             throw new Error(`Transaction would fail: ${JSON.stringify(simResult.value.err)} ${logs}`.slice(0, 200))
           }
 
-          updateState(walletAddr, {
-            txMessage: `Batch ${i + 1}/${rawTxs.length} — approve in wallet…`,
-          })
-          const sig = await connectedWallet.sendTransaction(tx, conn)
+          updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} — approve in wallet…` })
+          // Sign via unified signTx (works on refresh even before Privy wallets repopulate)
+          const signed = await signTx(tx)
+          const sig = await conn.sendRawTransaction(signed.serialize(), { skipPreflight: false })
           await conn.confirmTransaction(sig, "confirmed")
           updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} confirmed ✓` })
         }
@@ -225,7 +208,7 @@ function useCloseAccounts(
         onError(e)
       }
     },
-    [connectedWallet, updateState],
+    [activeAddress, signTx, updateState],
   )
 }
 
@@ -591,8 +574,8 @@ function WalletCard({
 
 export function Scanner() {
   const { ready, authenticated, login, logout } = usePrivy()
-  const { activeAddress, privyWallet } = useActiveWallet()
-  const connectedWallet = privyWallet // needed for sendTransaction
+  const { activeAddress, privyWallet, signTransaction } = useActiveWallet()
+  const connectedWallet = privyWallet
 
   const [mode, setMode] = useState<Mode>("single")
 
@@ -675,8 +658,8 @@ export function Scanner() {
   }
 
   // ── Close hooks ───────────────────────────────────────────────────────────
-  const closeSingle = useCloseAccounts(connectedWallet, updateSingle)
-  const closeBulk   = useCloseAccounts(connectedWallet, updateBulk)
+  const closeSingle = useCloseAccounts(activeAddress, signTransaction, updateSingle)
+  const closeBulk   = useCloseAccounts(activeAddress, signTransaction, updateBulk)
 
   // ── Bulk scan ─────────────────────────────────────────────────────────────
   const handleBulkScan = useCallback(() => {
