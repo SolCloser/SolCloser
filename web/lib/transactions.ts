@@ -3,6 +3,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  ComputeBudgetProgram,
 } from "@solana/web3.js"
 import {
   createCloseAccountInstruction,
@@ -41,6 +42,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
  */
 function buildCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
   const tx = new Transaction()
+  // Explicit compute budget — prevents Phantom simulation warnings on newer versions
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: Math.max(50_000, batch.length * 15_000) }))
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }))
   for (const acc of batch) {
     tx.add(
       createCloseAccountInstruction(
@@ -61,6 +65,9 @@ function buildCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
 
 function buildBurnCloseTx(owner: PublicKey, batch: TokenAccount[]): Transaction {
   const tx = new Transaction()
+  // Explicit compute budget — burn + close costs more CUs than close-only
+  tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: Math.max(100_000, batch.length * 30_000) }))
+  tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }))
   for (const acc of batch) {
     const p = pid(acc)
     if (acc.balance > 0n) {

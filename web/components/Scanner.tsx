@@ -198,9 +198,22 @@ function useCloseAccounts(
 
         for (let i = 0; i < rawTxs.length; i++) {
           updateState(walletAddr, {
-            txMessage: `Batch ${i + 1}/${rawTxs.length} — approve in wallet…`,
+            txMessage: `Batch ${i + 1}/${rawTxs.length} — simulating…`,
           })
           const tx = await prepareTransaction(rawTxs[i], conn, owner)
+
+          // Pre-simulate before sending to Phantom — catches failures early so
+          // Phantom's own simulation sees a passing tx (no "malicious dApp" warning).
+          // Legacy Transaction uses the signers[] overload (no signatures needed for sim).
+          const simResult = await conn.simulateTransaction(tx)
+          if (simResult.value.err) {
+            const logs = simResult.value.logs?.join(" ") ?? ""
+            throw new Error(`Transaction would fail: ${JSON.stringify(simResult.value.err)} ${logs}`.slice(0, 200))
+          }
+
+          updateState(walletAddr, {
+            txMessage: `Batch ${i + 1}/${rawTxs.length} — approve in wallet…`,
+          })
           const sig = await connectedWallet.sendTransaction(tx, conn)
           await conn.confirmTransaction(sig, "confirmed")
           updateState(walletAddr, { txMessage: `Batch ${i + 1}/${rawTxs.length} confirmed ✓` })

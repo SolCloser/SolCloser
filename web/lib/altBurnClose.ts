@@ -1,12 +1,17 @@
 /**
  * altBurnClose.ts
  *
- * Burn + close up to ALT_BURN_PER_BUNDLE (35) tokens in a single wallet approval,
- * using Jito bundles + Address Lookup Tables — same pattern as altClose.ts.
+ * Burn + close up to ALT_BURN_PER_BUNDLE (35) tokens in a single wallet approval
+ * using Address Lookup Tables (ALTs).
  *
- * The ALT stores both the token accounts AND their mints (70 addresses for 35 tokens),
- * enabling burn instructions to reference mints via 1-byte ALT indices rather than
- * 32-byte pubkeys, fitting ~35 burn+close pairs inside the 1232-byte tx limit.
+ * Flow:
+ *  1. Server creates + signs ALT setup txs (token accounts + mints)
+ *  2. Client submits ALT txs to RPC and waits for on-chain confirmation
+ *  3. Client fetches the real ALT from chain
+ *  4. Build versioned burn+close tx — Phantom simulation succeeds ✓
+ *  5. User approves once in wallet
+ *  6. Submit via normal RPC (priority fee included)
+ *  7. Deactivate ALT fire-and-forget
  */
 
 import {
@@ -16,7 +21,6 @@ import {
   SystemProgram,
   VersionedTransaction,
   TransactionMessage,
-  AddressLookupTableAccount,
 } from "@solana/web3.js"
 import {
   createCloseAccountInstruction,
@@ -27,7 +31,6 @@ import {
 import bs58 from "bs58"
 import { TokenAccount } from "./rpc"
 import { FEE_WALLET, FEE_BPS, RENT_PER_ACCOUNT_LAMPORTS, ALT_BURN_PER_BUNDLE } from "./constants"
-import { randomJitoTipAccount, JITO_TIP_LAMPORTS, submitJitoBundle } from "./jito"
 
 export async function burnAndCloseWithALT(
   connection: Connection,
@@ -36,7 +39,6 @@ export async function burnAndCloseWithALT(
   signTransaction: <T extends { serialize(): Uint8Array }>(tx: T) => Promise<T>,
   onStatus: (msg: string, bundle?: number, total?: number) => void,
 ): Promise<void> {
-  // Split into chunks of ALT_BURN_PER_BUNDLE for sequential bundles if needed
   const chunks: TokenAccount[][] = []
   for (let i = 0; i < accounts.length; i += ALT_BURN_PER_BUNDLE) {
     chunks.push(accounts.slice(i, i + ALT_BURN_PER_BUNDLE))
@@ -65,8 +67,8 @@ async function runBurnBundle(
   signTransaction: <T extends { serialize(): Uint8Array }>(tx: T) => Promise<T>,
   onStatus: (msg: string) => void,
 ): Promise<void> {
-  // ── 1. Server creates ALT containing token accounts + mints ─────────────────
-  onStatus("Creating lookup table…")
+  // ── 1. Server creates ALT containing token accounts + mints ──────────────────
+  onStatus("Setting up lookup table…")
 
   const tokenAccountAddrs = accounts.map((a) => a.pubkey)
   const mintAddrs = accounts.map((a) => a.mint)
@@ -74,7 +76,6 @@ async function runBurnBundle(
   const altRes = await fetch("/api/create-alt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // ALT order: token accounts first, then mints — must match fakeAlt below
     body: JSON.stringify({ tokenAccounts: tokenAccountAddrs, mints: mintAddrs }),
   })
   if (!altRes.ok) {
@@ -87,14 +88,29 @@ async function runBurnBundle(
   }
   const altAddress = new PublicKey(altAddressStr)
 
-  // ── 2. Build the versioned burn+close transaction ────────────────────────────
+  // ── 2. Submit ALT txs + wait for confirmation so Phantom can simulate ────────
+  onStatus("Confirming lookup table on-chain…")
+  for (const encodedTx of signedAltTxs) {
+    const txBytes = bs58.decode(encodedTx)
+    const sig = await connection.sendRawTransaction(txBytes, { skipPreflight: true })
+    const latest = await connection.getLatestBlockhash("confirmed")
+    await connection.confirmTransaction(
+      { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+      "confirmed",
+    )
+  }
+
+  // ── 3. Fetch the real ALT now it exists on-chain ─────────────────────────────
+  const altAccountInfo = await connection.getAddressLookupTable(altAddress)
+  if (!altAccountInfo.value) throw new Error("ALT not found on chain after setup")
+
+  // ── 4. Build versioned burn+close tx (simulation will pass) ──────────────────
   onStatus("Building burn transaction…")
 
-  // Burn costs more CUs than close — ~15-20k CUs per token, floor 300k
   const computeUnits = Math.max(300_000, accounts.length * 20_000)
   const computeIxs = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnits }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
   ]
 
   const burnCloseIxs = accounts.flatMap((acc) => {
@@ -102,7 +118,6 @@ async function runBurnBundle(
     const tokenPubkey = new PublicKey(acc.pubkey)
     const mintPubkey = new PublicKey(acc.mint)
     const ixs = []
-    // Burn only if there's a balance — empty-but-listed accounts skip the burn
     if (acc.balance > 0n) {
       ixs.push(createBurnInstruction(tokenPubkey, mintPubkey, owner, acc.balance, [], program))
     }
@@ -110,61 +125,36 @@ async function runBurnBundle(
     return ixs
   })
 
-  // Protocol fee on reclaimed rent
   const fee = Math.floor(accounts.length * RENT_PER_ACCOUNT_LAMPORTS * FEE_BPS / 10_000)
   if (fee > 0) {
     burnCloseIxs.push(
       SystemProgram.transfer({ fromPubkey: owner, toPubkey: new PublicKey(FEE_WALLET), lamports: fee }),
     )
   }
-  // Jito tip
-  burnCloseIxs.push(
-    SystemProgram.transfer({ fromPubkey: owner, toPubkey: randomJitoTipAccount(), lamports: JITO_TIP_LAMPORTS }),
-  )
 
-  const { blockhash } = await connection.getLatestBlockhash("finalized")
-
-  // Synthetic ALT — same address order as sent to create-alt
-  // token accounts first, then mints
-  const allAltPubkeys = [
-    ...tokenAccountAddrs.map((a) => new PublicKey(a)),
-    ...mintAddrs.map((a) => new PublicKey(a)),
-  ]
-
-  const fakeAlt = {
-    key: altAddress,
-    state: {
-      deactivationSlot: BigInt("18446744073709551615"),
-      lastExtendedSlot: 0,
-      lastExtendedSlotStartIndex: 0,
-      authority: undefined,
-      addresses: allAltPubkeys,
-      isActive: () => true,
-    },
-  } as unknown as AddressLookupTableAccount
+  const { blockhash } = await connection.getLatestBlockhash("confirmed")
 
   const message = new TransactionMessage({
     payerKey: owner,
     recentBlockhash: blockhash,
     instructions: [...computeIxs, ...burnCloseIxs],
-  }).compileToV0Message([fakeAlt])
+  }).compileToV0Message([altAccountInfo.value])
 
   const burnTx = new VersionedTransaction(message)
 
-  // ── 3. User signs — one wallet popup for the whole batch ────────────────────
+  // ── 5. User signs — Phantom simulation passes ✓ ──────────────────────────────
   onStatus(`Approve in wallet… (${accounts.length} tokens)`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const signedBurnTx = await signTransaction(burnTx as any)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const burnSig = bs58.encode((signedBurnTx as any).signatures[0])
 
-  // ── 4. Submit Jito bundle ────────────────────────────────────────────────────
-  onStatus("Submitting bundle to Jito…")
+  // ── 6. Submit via RPC ─────────────────────────────────────────────────────────
+  onStatus("Submitting transaction…")
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const encodedBurnTx = bs58.encode((signedBurnTx as any).serialize())
-  await submitJitoBundle([...signedAltTxs, encodedBurnTx])
+  const burnSig = await connection.sendRawTransaction((signedBurnTx as any).serialize(), {
+    skipPreflight: false,
+  })
 
-  // ── 5. Confirm ───────────────────────────────────────────────────────────────
+  // ── 7. Confirm ────────────────────────────────────────────────────────────────
   onStatus("Confirming…")
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
@@ -174,7 +164,7 @@ async function runBurnBundle(
     await new Promise((r) => setTimeout(r, 2_000))
   }
 
-  // ── 6. Deactivate ALT (fire-and-forget) ─────────────────────────────────────
+  // ── 8. Deactivate ALT (fire-and-forget) ──────────────────────────────────────
   fetch("/api/deactivate-alt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
