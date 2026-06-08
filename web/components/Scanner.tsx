@@ -96,12 +96,42 @@ function useScan() {
   return { scanning, progress, cooldown, run }
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const id = setTimeout(onDismiss, 4000)
+    return () => clearTimeout(id)
+  }, [onDismiss])
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-5 py-3 rounded-xl bg-red-500/95 backdrop-blur-sm text-white text-sm font-semibold shadow-xl">
+      <span>⚠️</span>
+      <span>{message}</span>
+      <button onClick={onDismiss} className="ml-1 text-white/60 hover:text-white text-base leading-none">✕</button>
+    </div>
+  )
+}
+
+function isInsufficientSol(raw: string): boolean {
+  const lower = raw.toLowerCase()
+  return (
+    raw.includes("AccountNotFound") ||
+    raw.includes("InsufficientFunds") ||
+    raw.includes("InsufficientFundsForRent") ||
+    lower.includes("account not found") ||
+    lower.includes("insufficient funds") ||
+    lower.includes("insufficient lamports")
+  )
+}
+
 // ── Hook: close / burn logic ─────────────────────────────────────────────────
 
 function useCloseAccounts(
   activeAddress: string | null,
   signTx: <T extends { serialize(): Uint8Array }>(tx: T) => Promise<T>,
   updateState: (addr: string, patch: Partial<WalletState>) => void,
+  showToast: (msg: string) => void,
 ) {
   return useCallback(
     async (ws: WalletState, mode: "close" | "burn") => {
@@ -138,6 +168,11 @@ function useCloseAccounts(
 
       const onError = (e: unknown) => {
         const raw = e instanceof Error ? e.message : String(e)
+        if (isInsufficientSol(raw)) {
+          showToast("Insufficient SOL — add SOL to your wallet to cover fees")
+          updateState(walletAddr, { txStatus: "error", txMessage: "Insufficient SOL" })
+          return
+        }
         const msg =
           raw.toLowerCase().includes("reject") || raw.toLowerCase().includes("cancel")
             ? "Transaction cancelled."
@@ -208,7 +243,7 @@ function useCloseAccounts(
         onError(e)
       }
     },
-    [activeAddress, signTx, updateState],
+    [activeAddress, signTx, updateState, showToast],
   )
 }
 
@@ -578,6 +613,8 @@ export function Scanner() {
   const connectedWallet = privyWallet
 
   const [mode, setMode] = useState<Mode>("single")
+  const [toast, setToast] = useState<string | null>(null)
+  const showToast = useCallback((msg: string) => setToast(msg), [])
 
   // ── Single mode state ────────────────────────────────────────────────────
   const [singleState, setSingleState] = useState<WalletState | null>(null)
@@ -658,8 +695,8 @@ export function Scanner() {
   }
 
   // ── Close hooks ───────────────────────────────────────────────────────────
-  const closeSingle = useCloseAccounts(activeAddress, signTransaction, updateSingle)
-  const closeBulk   = useCloseAccounts(activeAddress, signTransaction, updateBulk)
+  const closeSingle = useCloseAccounts(activeAddress, signTransaction, updateSingle, showToast)
+  const closeBulk   = useCloseAccounts(activeAddress, signTransaction, updateBulk, showToast)
 
   // ── Bulk scan ─────────────────────────────────────────────────────────────
   const handleBulkScan = useCallback(() => {
@@ -690,6 +727,7 @@ export function Scanner() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 space-y-6">
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       {/* Hero */}
       <div className="text-center space-y-3">
         <h1 className="text-4xl font-bold">
