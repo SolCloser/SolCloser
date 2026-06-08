@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import "./globals.css"
 import { Providers } from "@/components/Providers"
 import { Header } from "@/components/Header"
+import { Analytics } from "@vercel/analytics/next"
 
 const BASE_URL = "https://rentisdue.xyz"
 
@@ -208,6 +209,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <Header />
           <main>{children}</main>
+          <Analytics />
         </Providers>
       </body>
     </html>
