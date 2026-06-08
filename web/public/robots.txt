@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://solcloser.app/sitemap.xml
+Sitemap: https://rentisdue.xyz/sitemap.xml

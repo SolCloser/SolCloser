@@ -16,9 +16,9 @@ export function Header() {
       <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Logo mark */}
-          <img src="/icon.svg" alt="SolCloser" className="w-7 h-7 rounded-lg" />
+          <img src="/icon.svg" alt="Rent is Due" className="w-7 h-7 rounded-lg" />
           <span className="font-semibold text-white text-lg tracking-tight">
-            Sol<span className="gradient-text">Closer</span>
+            Rent is <span className="gradient-text">Due</span>
           </span>
         </div>
 

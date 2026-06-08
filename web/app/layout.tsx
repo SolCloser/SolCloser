@@ -3,13 +3,13 @@ import "./globals.css"
 import { Providers } from "@/components/Providers"
 import { Header } from "@/components/Header"
 
-const BASE_URL = "https://solcloser.app"
+const BASE_URL = "https://rentisdue.xyz"
 
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: "Close 90 Solana Token Accounts in One Click | SolCloser",
-    template: "%s | SolCloser",
+    default: "Close 90 Solana Token Accounts in One Click | Rent is Due",
+    template: "%s | Rent is Due",
   },
   description:
     "Reclaim locked SOL from up to 90 empty token accounts in a single wallet approval. Jito-powered, non-custodial Solana wallet cleaner — 2.5% fee, only on what you recover.",
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
     "close token accounts one signature",
     "fastest Solana wallet cleaner",
     // Brand + wallet
-    "SolCloser",
+    "Rent is Due",
     "Phantom wallet cleaner",
     "Backpack wallet cleaner",
     "Solflare wallet cleaner",
@@ -62,9 +62,9 @@ export const metadata: Metadata = {
     "burn tokens Solana",
     "burn dust tokens",
   ],
-  authors: [{ name: "SolCloser" }],
-  creator: "SolCloser",
-  publisher: "SolCloser",
+  authors: [{ name: "Rent is Due" }],
+  creator: "Rent is Due",
+  publisher: "Rent is Due",
   robots: {
     index: true,
     follow: true,
@@ -80,8 +80,8 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: BASE_URL,
-    siteName: "SolCloser",
-    title: "Close 90 Solana Token Accounts in One Click | SolCloser",
+    siteName: "Rent is Due",
+    title: "Close 90 Solana Token Accounts in One Click | Rent is Due",
     description:
       "Reclaim locked SOL from up to 90 empty token accounts in a single wallet approval. Jito-powered, non-custodial — 2.5% fee only on what you recover.",
     images: [
@@ -89,13 +89,13 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "SolCloser — Close 90 Solana Token Accounts in One Click",
+        alt: "Rent is Due — Close 90 Solana Token Accounts in One Click",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Close 90 Solana Token Accounts in One Click | SolCloser",
+    title: "Close 90 Solana Token Accounts in One Click | Rent is Due",
     description:
       "Reclaim locked SOL from up to 90 empty token accounts in a single wallet approval. Jito-powered, non-custodial — 2.5% fee only on what you recover.",
     images: ["/og-image.png"],
@@ -118,7 +118,7 @@ const jsonLd = {
   "@graph": [
     {
       "@type": "SoftwareApplication",
-      name: "SolCloser",
+      name: "Rent is Due",
       url: BASE_URL,
       applicationCategory: "FinanceApplication",
       operatingSystem: "Web",
@@ -144,18 +144,18 @@ const jsonLd = {
       mainEntity: [
         {
           "@type": "Question",
-          name: "Is SolCloser safe to use?",
+          name: "Is Rent is Due safe to use?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Yes. SolCloser is fully non-custodial. Your private keys never leave your wallet. Every transaction is reviewed and signed by you — we can only close accounts you explicitly select. No funds are ever held by SolCloser.",
+            text: "Yes. Rent is Due is fully non-custodial. Your private keys never leave your wallet. Every transaction is reviewed and signed by you — we can only close accounts you explicitly select. No funds are ever held by Rent is Due.",
           },
         },
         {
           "@type": "Question",
-          name: "Can SolCloser access my funds?",
+          name: "Can Rent is Due access my funds?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "No. SolCloser never holds your funds or private keys. It only initiates transactions that you sign in your own wallet (Phantom, Backpack, or Solflare). Every action requires your explicit on-screen approval.",
+            text: "No. Rent is Due never holds your funds or private keys. It only initiates transactions that you sign in your own wallet (Phantom, Backpack, or Solflare). Every action requires your explicit on-screen approval.",
           },
         },
         {
@@ -168,18 +168,18 @@ const jsonLd = {
         },
         {
           "@type": "Question",
-          name: "What fee does SolCloser charge?",
+          name: "What fee does Rent is Due charge?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "SolCloser charges 2.5% of the SOL you recover. There is no upfront cost — the small fee is deducted only from the rent you successfully reclaim. You never pay out of pocket.",
+            text: "Rent is Due charges 2.5% of the SOL you recover. There is no upfront cost — the small fee is deducted only from the rent you successfully reclaim. You never pay out of pocket.",
           },
         },
         {
           "@type": "Question",
-          name: "How many accounts can SolCloser close at once?",
+          name: "How many accounts can Rent is Due close at once?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "SolCloser can close up to 90 empty token accounts in a single wallet approval using Jito bundles and Solana Address Lookup Tables (ALTs). This is significantly more than standard tools that are limited to 20 accounts per transaction and require multiple approvals.",
+            text: "Rent is Due can close up to 90 empty token accounts in a single wallet approval using Jito bundles and Solana Address Lookup Tables (ALTs). This is significantly more than standard tools that are limited to 20 accounts per transaction and require multiple approvals.",
           },
         },
         {
@@ -187,7 +187,7 @@ const jsonLd = {
           name: "What is a Jito bundle and why does it matter?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Jito bundles are groups of Solana transactions submitted atomically to Jito block engine validators. They either all land together or none of them do, eliminating partial failures. SolCloser uses Jito bundles by default to ensure your account closures are fast and reliable.",
+            text: "Jito bundles are groups of Solana transactions submitted atomically to Jito block engine validators. They either all land together or none of them do, eliminating partial failures. Rent is Due uses Jito bundles by default to ensure your account closures are fast and reliable.",
           },
         },
       ],

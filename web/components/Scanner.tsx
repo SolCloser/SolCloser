@@ -1034,20 +1034,20 @@ export function Scanner() {
 
 const FAQ_ITEMS = [
   {
-    q: "Is it safe to use SolCloser?",
-    a: "Yes. SolCloser never asks for your private key. All transactions are signed directly in your wallet (Phantom, Backpack, Solflare etc.) — we only request your approval for the close transactions, just like any other Solana app.",
+    q: "Is it safe to use Rent is Due?",
+    a: "Yes. Rent is Due never asks for your private key. All transactions are signed directly in your wallet (Phantom, Backpack, Solflare etc.) — we only request your approval for the close transactions, just like any other Solana app.",
   },
   {
-    q: "Does SolCloser have access to my funds?",
+    q: "Does Rent is Due have access to my funds?",
     a: "No. We can only close empty token accounts that belong to you, and only when you approve each transaction. We have no ability to move SOL or tokens without your explicit signature.",
   },
   {
     q: "What is an empty token account?",
-    a: "When you receive or trade a token on Solana, a token account is created on-chain. This account requires a small SOL deposit (~0.002 SOL) called rent. When you sell or transfer all tokens, the account stays open but empty — SolCloser lets you close it and reclaim that SOL.",
+    a: "When you receive or trade a token on Solana, a token account is created on-chain. This account requires a small SOL deposit (~0.002 SOL) called rent. When you sell or transfer all tokens, the account stays open but empty — Rent is Due lets you close it and reclaim that SOL.",
   },
   {
     q: "What is the fee?",
-    a: "SolCloser charges 2.5% of the SOL reclaimed. For example, closing 10 empty accounts returns ~0.02039 SOL, and our fee is ~0.00051 SOL. You keep the rest.",
+    a: "Rent is Due charges 2.5% of the SOL reclaimed. For example, closing 10 empty accounts returns ~0.02039 SOL, and our fee is ~0.00051 SOL. You keep the rest.",
   },
   {
     q: "What happens to my tokens when I use Burn & Close?",
