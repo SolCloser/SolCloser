@@ -154,7 +154,14 @@ async function runCloseBundle(
     await new Promise((r) => setTimeout(r, 2_000))
   }
 
-  // ── 8. Deactivate ALT (fire-and-forget) ───────────────────────────────────
+  // ── 8. Forgive rate limit slot (awaited — must complete before next round) ──
+  await fetch("/api/alt-complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signature: closeSig }),
+  }).catch(() => { /* non-fatal */ })
+
+  // ── 9. Deactivate ALT (fire-and-forget) ───────────────────────────────────
   fetch("/api/deactivate-alt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -164,7 +164,17 @@ async function runBurnBundle(
     await new Promise((r) => setTimeout(r, 2_000))
   }
 
-  // ── 8. Deactivate ALT (fire-and-forget) ──────────────────────────────────────
+  // ── 8. Forgive rate limit slot (awaited — must complete before next round) ───
+  // Awaiting ensures the pending count is decremented before the next create-alt
+  // call, so users doing many sequential rounds (e.g. 10 × 35 tokens) are never
+  // incorrectly rate-limited.
+  await fetch("/api/alt-complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signature: burnSig }),
+  }).catch(() => { /* non-fatal */ })
+
+  // ── 9. Deactivate ALT (fire-and-forget) ──────────────────────────────────────
   fetch("/api/deactivate-alt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

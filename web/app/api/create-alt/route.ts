@@ -7,6 +7,7 @@ import {
   AddressLookupTableProgram,
 } from "@solana/web3.js"
 import bs58 from "bs58"
+import { attempt } from "@/lib/altRateLimit"
 
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? "https://api.mainnet-beta.solana.com"
 
@@ -14,6 +15,14 @@ const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? "https://api.mainnet-b
 const ADDRESSES_PER_TX = 25
 // Max total addresses per ALT (close-only: 90 accounts; burn+close: 35 accounts + 35 mints = 70)
 const MAX_ADDRESSES = 90
+
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  )
+}
 
 function loadServerKeypair(): Keypair {
   const key = process.env.SERVER_WALLET_PRIVATE_KEY
@@ -23,6 +32,15 @@ function loadServerKeypair(): Keypair {
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Rate limit check ──────────────────────────────────────────────────────
+    const ip = getClientIp(req)
+    if (!attempt(ip)) {
+      return NextResponse.json(
+        { error: "Too many requests — please wait a few minutes before trying again" },
+        { status: 429 },
+      )
+    }
+
     const { tokenAccounts, mints } = (await req.json()) as {
       tokenAccounts: string[]
       mints?: string[]
@@ -37,15 +55,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Max ${MAX_ADDRESSES} addresses per ALT` }, { status: 400 })
     }
 
-    const payer = loadServerKeypair()
+    // ── Validate all addresses are well-formed public keys ────────────────────
+    let allPubkeys: PublicKey[]
+    try {
+      allPubkeys = allAddressStrs.map((a) => new PublicKey(a))
+    } catch {
+      return NextResponse.json({ error: "Invalid public key in address list" }, { status: 400 })
+    }
+
     const connection = new Connection(RPC_URL, "confirmed")
+
+    // ── Verify token accounts exist on-chain before spending server SOL ───────
+    // Rejects requests with fake/nonexistent addresses immediately.
+    const tokenPubkeys = tokenAccounts.map((a) => new PublicKey(a))
+    const accountInfos = await connection.getMultipleAccountsInfo(tokenPubkeys)
+    const missingCount = accountInfos.filter((info) => info === null).length
+    if (missingCount > 0) {
+      return NextResponse.json(
+        { error: `${missingCount} token account(s) not found on-chain` },
+        { status: 400 },
+      )
+    }
+
+    const payer = loadServerKeypair()
 
     const [slot, { blockhash }] = await Promise.all([
       connection.getSlot("finalized"),
       connection.getLatestBlockhash("finalized"),
     ])
 
-    const accountPubkeys = allAddressStrs.map((a) => new PublicKey(a))
+    const accountPubkeys = allPubkeys
 
     // Derive ALT address deterministically
     const [createIx, altAddress] = AddressLookupTableProgram.createLookupTable({
