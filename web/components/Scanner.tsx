@@ -58,11 +58,22 @@ function makeWalletState(result: WalletScanResult): WalletState {
 
 // ── Hook: core scan ──────────────────────────────────────────────────────────
 
-function useScan() {
+function useScan(storageKey?: string) {
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
-  const [lastScan, setLastScan] = useState<number | null>(null)
+  const [lastScan, setLastScanState] = useState<number | null>(() => {
+    if (!storageKey || typeof window === "undefined") return null
+    const stored = localStorage.getItem(storageKey)
+    return stored ? parseInt(stored, 10) : null
+  })
   const [cooldown, setCooldown] = useState(0)
+
+  const setLastScan = useCallback((ts: number) => {
+    setLastScanState(ts)
+    if (storageKey && typeof window !== "undefined") {
+      localStorage.setItem(storageKey, String(ts))
+    }
+  }, [storageKey])
 
   useEffect(() => {
     if (!lastScan) return
@@ -90,7 +101,7 @@ function useScan() {
       setLastScan(Date.now())
       setScanning(false)
     },
-    [scanning],
+    [scanning, setLastScan],
   )
 
   return { scanning, progress, cooldown, run }
@@ -624,7 +635,7 @@ export function Scanner() {
   const [bulkInput, setBulkInput] = useState("")
   const [bulkStates, setBulkStates] = useState<WalletState[]>([])
   const [activeWalletIdx, setActiveWalletIdx] = useState(0)
-  const bulkScan = useScan()
+  const bulkScan = useScan("rid_bulk_scan_last")
 
   // ── Auto-scan when wallet connects (single mode) ───────────────────────────
   const singleRunRef = useRef(singleScan.run)
